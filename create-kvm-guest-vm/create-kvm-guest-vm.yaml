@@ -1,0 +1,8 @@
+- name: Create new VM
+  hosts: all
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: KVM provision
+      include_role:
+        name: kvm-provision

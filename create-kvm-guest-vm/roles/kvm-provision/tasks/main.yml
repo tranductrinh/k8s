@@ -1,0 +1,83 @@
+---
+# tasks file for kvm-provision
+- name: Check preconditions
+  block:
+    - name: Check if vm exists
+      stat:
+        path: "{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.xml"
+      register: stat_result
+    - name: Fail if vm exists
+      fail:
+        msg: VM already exists
+      when: stat_result.stat.exists
+    - name: Fail if vm is not named
+      fail:
+        msg: No name provided for the new VM
+      when: vm_name | length == 0
+
+- name: Create VM directory
+  file:
+    path: "{{ vms_image_pool_dir }}/{{ vm_name }}"
+    state: directory
+
+- name: Copy base image to VM directory
+  become: true
+  copy:
+    remote_src: true
+    src: "{{ base_image_pool_dir }}/{{ base_image_name }}"
+    dest: "{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.qcow2"
+
+- name: Resize VM image
+  become: true
+  shell: "qemu-img resize {{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.qcow2 +{{ vm_disk_size }}"
+
+- name: Create a new raw disk
+  become: true
+  shell: "qemu-img create -f raw {{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}-ceph-disk 20G"
+
+- name: Generate new mac address for new VM
+  shell: bash -c "printf '00:16:3E:%02X:%02X:%02X\n' $[RANDOM%256] $[RANDOM%256] $[RANDOM%256]"
+  register: new_mac
+
+- name: Save new mac address for new VM
+  set_fact:
+    vm_mac_address: "{{ new_mac.stdout }}"
+    vm_uuid: "{{ ansible_date_time.iso8601_micro | to_uuid }}"
+
+- name: Configure VM image
+  become: true
+  command: |
+    virt-customize -a "{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.qcow2" \
+    --hostname {{ vm_name }} \
+    --root-password password:{{ vm_root_password }} \
+    --ssh-inject root:file:{{ vm_root_public_key }} \
+    --firstboot-command "cat << "EOF" > /etc/netplan/50-cloud-init.yaml
+    network:
+      version: 2
+      ethernets:
+        ens3:
+          dhcp4: true
+          match:
+            macaddress: {{ new_mac.stdout }}
+          set-name: ens3
+    EOF" \
+    --firstboot-command "netplan apply"
+    --firstboot-command "useradd -u 2000 -s /bin/bash -d /home/ci/ -m -G sudo ci"
+    --firstboot-command "cp -r /root/.ssh /home/ci && chown -R ci /home/ci/.ssh"
+    --firstboot-command "dpkg-reconfigure openssh-server"
+    --firstboot-command "echo 'ci ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
+    --firstboot-command "growpart /dev/vda 1 && resize2fs /dev/vda1"
+    --uninstall cloud-init
+
+- name: Copy new VM configuration into VM directory
+  template:
+    src: vm-template.xml.j2
+    dest: "{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.xml"
+
+- name: Import new VM configuration
+  become: true
+  shell: "virsh define {{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.xml"
+
+- name: Start new VM
+  become: true
+  shell: "virsh start {{ vm_name }}"
