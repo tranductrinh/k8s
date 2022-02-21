@@ -2,8 +2,8 @@
 
 This will set up a new multi-master Kubernetes cluster that has
 * 3 masters, each master has 2 CPUs and 2 GBs RAM
-* 3 nodes, each master has 2 CPUs and 2 GBs RAM
-* 2 load balancer has 1 CPU and 1 GB RAM
+* 3 workers, each worker has 2 CPUs and 2 GBs RAM
+* 2 load balancers, each load balancer has 1 CPU and 1 GB RAM
 
 ![setup.png](setup.png?raw=true "setup.png")
 

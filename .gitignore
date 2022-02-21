@@ -1,1 +1,4 @@
 /.idea/
+/create-ha-cluster/.vagrant/
+/create-virtualbox-vm/.vagrant/
+/getting-started-with-ansible/.vagrant/
