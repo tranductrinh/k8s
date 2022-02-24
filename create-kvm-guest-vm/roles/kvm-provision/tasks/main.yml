@@ -33,7 +33,8 @@
 
 - name: Create a new raw disk
   become: true
-  shell: "qemu-img create -f raw {{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}-ceph-disk 20G"
+  shell: "qemu-img create -f raw {{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}-second-disk {{ vm_second_disk_size }}"
+  when: vm_second_disk_enabled
 
 - name: Generate new mac address for new VM
   shell: bash -c "printf '00:16:3E:%02X:%02X:%02X\n' $[RANDOM%256] $[RANDOM%256] $[RANDOM%256]"

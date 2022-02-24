@@ -15,11 +15,13 @@
       <source file='{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.qcow2'/>
       <target dev='vda' bus='virtio'/>
     </disk>
+    {% if vm_second_disk_enabled %}
     <disk type='file' device='disk'>
        <driver name='qemu' type='raw' cache='none'/>
-       <source file='{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}-ceph-disk'/>
+       <source file='{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}-second-disk'/>
        <target dev='vdb' bus='virtio'/>
     </disk >
+    {% endif %}
     <interface type='bridge'>
       <mac address="{{ vm_mac_address }}"/>
       <source bridge='br0'/>
