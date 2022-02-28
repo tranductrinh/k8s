@@ -1,0 +1,46 @@
+---
+
+- hosts: lbs
+  name: Setup load balancers
+  remote_user: ci
+  become: yes
+  tasks:
+    - name: Install haproxy
+      apt:
+        name:
+          - haproxy
+        state: present
+        update_cache: yes
+
+    - name: Create haproxy conf empty file
+      copy:
+        content: ""
+        dest: /etc/haproxy/haproxy.cfg
+        force: yes
+
+    - name: Configure haproxy
+      shell: |
+        cat <<EOF | sudo tee /etc/haproxy/haproxy.cfg
+        frontend kubernetes-frontend
+          bind *:6443
+          mode tcp
+          option tcplog
+          default_backend kubernetes-backend
+
+        backend kubernetes-backend
+          option httpchk GET /healthz
+          http-check expect status 200
+          mode tcp
+          option ssl-hello-chk
+          balance roundrobin
+            server k8s-master-1 172.16.1.11:6443 check fall 3 rise 2
+            server k8s-master-2 172.16.1.12:6443 check fall 3 rise 2
+            server k8s-master-3 172.16.1.13:6443 check fall 3 rise 2
+        EOF
+
+    - name: Restart haproxy
+      systemd:
+        name: haproxy
+        state: restarted
+        enabled: yes
+        daemon-reload: yes
