@@ -52,15 +52,12 @@
     --hostname {{ vm_name }} \
     --root-password password:{{ vm_root_password }} \
     --ssh-inject root:file:{{ vm_root_public_key }} \
-    --firstboot-command "cat << "EOF" > /etc/netplan/50-cloud-init.yaml
+    --firstboot-command "cat << "EOF" > /etc/netplan/00-installer-config.yaml
     network:
-      version: 2
       ethernets:
-        ens3:
+        ens2:
           dhcp4: true
-          match:
-            macaddress: {{ new_mac.stdout }}
-          set-name: ens3
+      version: 2
     EOF" \
     --firstboot-command "netplan apply"
     --firstboot-command "useradd -u 2000 -s /bin/bash -d /home/ci/ -m -G sudo ci"

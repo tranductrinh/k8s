@@ -22,9 +22,10 @@
        <target dev='vdb' bus='virtio'/>
     </disk >
     {% endif %}
-    <interface type='bridge'>
+    <interface type='network'>
       <mac address="{{ vm_mac_address }}"/>
-      <source bridge='br0'/>
+      <source network='host-bridge'/>
+      <model type='virtio'/>
     </interface>
     <serial type='pty'>
       <source path='/dev/pts/1'/>
