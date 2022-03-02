@@ -90,7 +90,7 @@
 
           vrrp_instance VI_1 {
               state MASTER
-              interface ens3
+              interface ens2
               virtual_router_id 101
               priority 101
               advert_int 1
