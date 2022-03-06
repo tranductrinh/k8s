@@ -36,6 +36,33 @@
             server k8s-master-1 172.16.1.11:6443 check fall 3 rise 2
             server k8s-master-2 172.16.1.12:6443 check fall 3 rise 2
             server k8s-master-3 172.16.1.13:6443 check fall 3 rise 2
+
+        frontend http_frontend
+          bind *:80
+          mode tcp
+          option tcplog
+          default_backend http_backend
+
+        backend http_backend
+          mode tcp
+          balance roundrobin
+            server k8s-worker-1 172.16.2.11:30100 check send-proxy-v2
+            server k8s-worker-2 172.16.2.12:30100 check send-proxy-v2
+            server k8s-worker-3 172.16.2.13:30100 check send-proxy-v2
+
+        frontend https_frontend
+          bind *:443
+          mode tcp
+          option tcplog
+          default_backend https_backend
+
+        backend https_backend
+          mode tcp
+          balance roundrobin
+            server k8s-worker-1 172.16.2.11:30101 check send-proxy-v2
+            server k8s-worker-2 172.16.2.12:30101 check send-proxy-v2
+            server k8s-worker-3 172.16.2.13:30101 check send-proxy-v2
+
         EOF
 
     - name: Restart haproxy
