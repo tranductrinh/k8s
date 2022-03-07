@@ -90,7 +90,7 @@
 
           vrrp_instance VI_1 {
               state MASTER
-              interface ens2
+              interface eth1
               virtual_router_id 101
               priority 101
               authentication {
@@ -111,4 +111,8 @@
         state: restarted
         enabled: yes
         daemon-reload: yes
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
 
