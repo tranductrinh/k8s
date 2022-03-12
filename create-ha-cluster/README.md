@@ -37,18 +37,18 @@ ssh ci@172.16.1.11
 
 ## Setup load balancer
 ```
-ansible-playbook -i playbook/lb_inventory.yml playbook/lb_playbook.yml --extra-vars "cluster_vip=172.16.16.16"
+ansible-playbook -i playbook/lb_inventory.yml playbook/lb_playbook.yml --extra-vars "cluster_vip=172.16.0.16"
 ```
 
 Let's ssh into the load balancer VM by the VIP, and check haproxy service status
 ```
-ssh ci@172.16.16.16
+ssh ci@172.16.0.16
 systemctl status haproxy
 ```
 
 ## Setup Kubernetes cluster
 ```
-ansible-playbook -i playbook/cluster_inventory.yml playbook/cluster_playbook.yml --extra-vars "cluster_vip=172.16.16.16"
+ansible-playbook -i playbook/cluster_inventory.yml playbook/cluster_playbook.yml --extra-vars "cluster_vip=172.16.0.16"
 ```
 
 Let's ssh into the first master VM, and verify the cluster

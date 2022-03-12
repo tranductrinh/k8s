@@ -36,6 +36,33 @@
             server k8s-master-1 172.16.1.11:6443 check fall 3 rise 2
             server k8s-master-2 172.16.1.12:6443 check fall 3 rise 2
             server k8s-master-3 172.16.1.13:6443 check fall 3 rise 2
+
+        frontend http_frontend
+          bind *:80
+          mode tcp
+          option tcplog
+          default_backend http_backend
+
+        backend http_backend
+          mode tcp
+          balance roundrobin
+            server k8s-worker-1 172.16.2.11:30100 check send-proxy-v2
+            server k8s-worker-2 172.16.2.12:30100 check send-proxy-v2
+            server k8s-worker-3 172.16.2.13:30100 check send-proxy-v2
+
+        frontend https_frontend
+          bind *:443
+          mode tcp
+          option tcplog
+          default_backend https_backend
+
+        backend https_backend
+          mode tcp
+          balance roundrobin
+            server k8s-worker-1 172.16.2.11:30101 check send-proxy-v2
+            server k8s-worker-2 172.16.2.12:30101 check send-proxy-v2
+            server k8s-worker-3 172.16.2.13:30101 check send-proxy-v2
+
         EOF
 
     - name: Restart haproxy
@@ -52,26 +79,6 @@
         state: present
         update_cache: yes
 
-    - name: Create check_apiserver.sh empty file
-      copy:
-        content: ""
-        dest: /etc/keepalived/check_apiserver.sh
-        force: no
-
-    - name: Create check_apiserver.sh
-      shell: |
-        cat <<EOF | sudo tee /etc/keepalived/check_apiserver.sh
-        #!/bin/sh
-
-        curl --silent --max-time 2 --insecure https://localhost:6443/ -o /dev/null || exit 1
-        if ip addr | grep -q {{ cluster_vip }}; then
-          curl --silent --max-time 2 --insecure https://{{ cluster_vip }}:6443/ -o /dev/null || exit 1
-        fi
-        EOF
-
-    - name: Allow execute check_apiserver.sh
-      shell: chmod +x /etc/keepalived/check_apiserver.sh
-
     - name: Create keepalived.conf empty file
       copy:
         content: ""
@@ -83,7 +90,7 @@
         path: /etc/keepalived/keepalived.conf
         block: |
           vrrp_script check_apiserver {
-            script "/etc/keepalived/check_apiserver.sh"
+            script "killall -0 haproxy"
             interval 3
             timeout 10
           }
@@ -91,14 +98,15 @@
           vrrp_instance VI_1 {
               state MASTER
               interface eth1
-              virtual_router_id 101
-              priority 101
+              virtual_router_id 201
+              priority 200
+              advert_int 1
               authentication {
                   auth_type PASS
                   auth_pass secret
               }
               virtual_ipaddress {
-                  {{ cluster_vip }}
+                  {{ cluster_vip }}/24
               }
               track_script {
                   check_apiserver
@@ -111,8 +119,4 @@
         state: restarted
         enabled: yes
         daemon-reload: yes
-
-    - name: Enable ufw
-      community.general.ufw:
-        state: enabled
 
