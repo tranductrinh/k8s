@@ -1,0 +1,334 @@
+---
+
+- hosts: etcd
+  name: Setup container runtine, kubelet, kubeadm
+  remote_user: ci
+  become: yes
+  tasks:
+    # https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/#before-you-begin
+    - name: Disable swap
+      shell: swapoff -a
+
+    - name: Remove swap entry from /etc/fstab
+      lineinfile:
+        dest: /etc/fstab
+        regexp: swap
+        state: absent
+
+    - name: Load br_netfilter module
+      shell: |
+        cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+        br_netfilter
+        EOF
+
+    - name: Configure iptables to see bridged traffic
+      shell: |
+        cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net.bridge.bridge-nf-call-iptables = 1
+        EOF
+
+    - name: Read values from all system directories
+      shell: sysctl --system
+
+    # https://docs.docker.com/engine/install/ubuntu/#installation-methods
+    - name: Install packages to allow apt to use a repository over HTTPS
+      apt:
+        name:
+          - ca-certificates
+          - gnupg
+          - apt-transport-https
+        state: present
+        update_cache: yes
+
+    - name: Add Docker’s official GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Get Ubuntu release version
+      shell: lsb_release -cs
+      register: ubuntu_version
+
+    - name: Get architecture
+      shell: dpkg --print-architecture
+      register: architecture
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch={{ architecture.stdout }}] https://download.docker.com/linux/ubuntu {{ ubuntu_version.stdout }} stable"
+        state: present
+        filename: docker
+
+    - name: Update apt packages
+      apt:
+        update_cache: "yes"
+        force_apt_get: "yes"
+
+    - name: Install Docker engine
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    # https://kubernetes.io/docs/setup/production-environment/container-runtimes/#docker
+    - name: Create Docker directory
+      file:
+        path: /etc/docker
+        state: directory
+
+    - name: Create Docker daemon empty file
+      copy:
+        content: ""
+        dest: /etc/docker/daemon.json
+        force: no
+
+    - name: Configure Docker daemon
+      shell: |
+        cat <<EOF | sudo tee /etc/docker/daemon.json
+        {
+          "exec-opts": ["native.cgroupdriver=systemd"],
+          "log-driver": "json-file",
+          "log-opts": {
+            "max-size": "100m"
+          },
+          "storage-driver": "overlay2"
+        }
+        EOF
+
+    - name: Restart Docker
+      systemd:
+        name: docker
+        state: restarted
+        enabled: yes
+        daemon-reload: yes
+
+    - name: Add current user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+      become: yes
+
+    - name: Add Google Cloud public signing key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Add Kubernetes repository
+      apt_repository:
+        repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+        state: present
+        filename: kubernetes
+        mode: 0600
+
+    - name: Install kubelet and kubeadm
+      apt:
+        name:
+          - kubeadm=1.23.1-00
+          - kubelet=1.23.1-00
+        state: present
+
+    - name: Enable kubelet service
+      service:
+        name: kubelet
+        enabled: yes
+
+- hosts: etcd
+  name: Setup etcd cluster
+  remote_user: ci
+  become: yes
+  environment:
+    HOST0: '172.16.3.11'
+    HOST1: '172.16.3.12'
+    HOST2: '172.16.3.13'
+    NAME0: 'k8s-etcd-1'
+    NAME1: 'k8s-etcd-2'
+    NAME2: 'k8s-etcd-3'
+  tasks:
+    # https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/setup-ha-etcd-with-kubeadm/
+    - name: Configure the kubelet to be a service manager for etcd
+      shell: |
+        cat << EOF > /etc/systemd/system/kubelet.service.d/20-etcd-service-manager.conf
+        [Service]
+        ExecStart=
+        ExecStart=/usr/bin/kubelet --address=127.0.0.1 --pod-manifest-path=/etc/kubernetes/manifests --cgroup-driver=systemd
+        Restart=always
+        EOF
+
+    - name: Reload daemon configs
+      service:
+        daemon_reload: yes
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        state: restarted
+
+    - name: Configure the kubelet to be a service manager for etcd
+      args:
+        executable: /bin/bash
+      shell: |
+        # Create temp directories to store files that will end up on other hosts.
+        mkdir -p /tmp/${HOST0}/ /tmp/${HOST1}/ /tmp/${HOST2}/
+
+        HOSTS=(${HOST0} ${HOST1} ${HOST2})
+        NAMES=(${NAME0} ${NAME1} ${NAME2})
+
+        for i in "${!HOSTS[@]}"; do
+        HOST=${HOSTS[$i]}
+        NAME=${NAMES[$i]}
+        cat << EOF > /tmp/${HOST}/kubeadmcfg.yaml
+        ---
+        apiVersion: "kubeadm.k8s.io/v1beta3"
+        kind: InitConfiguration
+        nodeRegistration:
+            name: ${NAME}
+        localAPIEndpoint:
+            advertiseAddress: ${HOST}
+        ---
+        apiVersion: "kubeadm.k8s.io/v1beta3"
+        kind: ClusterConfiguration
+        etcd:
+            local:
+                serverCertSANs:
+                - "${HOST}"
+                peerCertSANs:
+                - "${HOST}"
+                extraArgs:
+                    initial-cluster: ${NAMES[0]}=https://${HOSTS[0]}:2380,${NAMES[1]}=https://${HOSTS[1]}:2380,${NAMES[2]}=https://${HOSTS[2]}:2380
+                    initial-cluster-state: new
+                    name: ${NAME}
+                    listen-peer-urls: https://${HOST}:2380
+                    listen-client-urls: https://${HOST}:2379
+                    advertise-client-urls: https://${HOST}:2379
+                    initial-advertise-peer-urls: https://${HOST}:2380
+        EOF
+        done
+
+    - name: Generate the certificate authority
+      shell: kubeadm init phase certs etcd-ca
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Create certificates for each member
+      shell: |
+        kubeadm init phase certs etcd-server --config=/tmp/${HOST2}/kubeadmcfg.yaml
+        kubeadm init phase certs etcd-peer --config=/tmp/${HOST2}/kubeadmcfg.yaml
+        kubeadm init phase certs etcd-healthcheck-client --config=/tmp/${HOST2}/kubeadmcfg.yaml
+        kubeadm init phase certs apiserver-etcd-client --config=/tmp/${HOST2}/kubeadmcfg.yaml
+        cp -R /etc/kubernetes/pki /tmp/${HOST2}/
+        # cleanup non-reusable certificates
+        find /etc/kubernetes/pki -not -name ca.crt -not -name ca.key -type f -delete
+
+        kubeadm init phase certs etcd-server --config=/tmp/${HOST1}/kubeadmcfg.yaml
+        kubeadm init phase certs etcd-peer --config=/tmp/${HOST1}/kubeadmcfg.yaml
+        kubeadm init phase certs etcd-healthcheck-client --config=/tmp/${HOST1}/kubeadmcfg.yaml
+        kubeadm init phase certs apiserver-etcd-client --config=/tmp/${HOST1}/kubeadmcfg.yaml
+        cp -R /etc/kubernetes/pki /tmp/${HOST1}/
+        find /etc/kubernetes/pki -not -name ca.crt -not -name ca.key -type f -delete
+
+        kubeadm init phase certs etcd-server --config=/tmp/${HOST0}/kubeadmcfg.yaml
+        kubeadm init phase certs etcd-peer --config=/tmp/${HOST0}/kubeadmcfg.yaml
+        kubeadm init phase certs etcd-healthcheck-client --config=/tmp/${HOST0}/kubeadmcfg.yaml
+        kubeadm init phase certs apiserver-etcd-client --config=/tmp/${HOST0}/kubeadmcfg.yaml
+        # No need to move the certs because they are for HOST0
+
+        # clean up certs that should not be copied off this host
+        find /tmp/${HOST2} -name ca.key -type f -delete
+        find /tmp/${HOST1} -name ca.key -type f -delete
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Change permissions on /tmp/172.16.3.12 to ci user
+      shell: chown -R ci:ci /tmp/172.16.3.12
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Copy certificates and kubeadm configs to k8s-etcd-2
+      shell: "scp -i /home/ci/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -r /tmp/172.16.3.12/* ci@172.16.3.12:/home/ci/"
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Copy certificates and kubeadm configs on k8s-etcd-2 into /etc/kubernetes
+      copy:
+        remote_src: yes
+        src: /home/ci/pki
+        dest: /etc/kubernetes/
+        owner: root
+        group: root
+      run_once: yes
+      delegate_to: "172.16.3.12" # This is k8s-etcd-2
+
+    - name: Remove certificates and kubeadm configs in home directory
+      file:
+        path: /home/ci/pki
+        state: absent
+      run_once: yes
+      delegate_to: "172.16.3.12" # This is k8s-etcd-2
+
+    - name: Change permissions on /tmp/172.16.3.13 to ci user
+      shell: chown -R ci:ci /tmp/172.16.3.13
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Copy certificates and kubeadm configs to k8s-etcd-3
+      shell: "scp -i /home/ci/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -r /tmp/172.16.3.13/* ci@172.16.3.13:/home/ci/"
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Copy certificates and kubeadm configs on k8s-etcd-3 into /etc/kubernetes
+      copy:
+        remote_src: yes
+        src: /home/ci/pki
+        dest: /etc/kubernetes/
+        owner: root
+        group: root
+      run_once: yes
+      delegate_to: "172.16.3.13" # This is k8s-etcd-3
+
+    - name: Remove certificates and kubeadm configs in home directory
+      file:
+        path: /home/ci/pki
+        state: absent
+      run_once: yes
+      delegate_to: "172.16.3.13" # This is k8s-etcd-3
+
+    - name: Create the static pod manifests on k8s-etcd-1
+      shell: kubeadm init phase etcd local --config=/tmp/172.16.3.11/kubeadmcfg.yaml
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Create the static pod manifests on k8s-etcd-2
+      shell: kubeadm init phase etcd local --config=/home/ci/kubeadmcfg.yaml
+      run_once: yes
+      delegate_to: "172.16.3.12" # This is k8s-etcd-2
+
+    - name: Create the static pod manifests on k8s-etcd-3
+      shell: kubeadm init phase etcd local --config=/home/ci/kubeadmcfg.yaml
+      run_once: yes
+      delegate_to: "172.16.3.13" # This is k8s-etcd-3
+
+    - name: Remove certificates in /tmp
+      shell: rm -rf /tmp/172.16.3.1*
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Copy pki/etcd/ca.crt to k8s-master-1
+      shell: "scp -i /home/ci/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -r /etc/kubernetes/pki/etcd/ca.crt ci@172.16.1.11:/home/ci/"
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Copy pki/apiserver-etcd-client.crt to k8s-master-1
+      shell: "scp -i /home/ci/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -r /etc/kubernetes/pki/apiserver-etcd-client.crt ci@172.16.1.11:/home/ci/"
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+
+    - name: Copy pki/apiserver-etcd-client.key to k8s-master-1
+      shell: "scp -i /home/ci/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -r /etc/kubernetes/pki/apiserver-etcd-client.key ci@172.16.1.11:/home/ci/"
+      run_once: yes
+      delegate_to: "172.16.3.11" # This is k8s-etcd-1
+

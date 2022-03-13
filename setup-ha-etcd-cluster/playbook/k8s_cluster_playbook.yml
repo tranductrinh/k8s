@@ -1,0 +1,281 @@
+---
+
+- hosts: masters, workers
+  name: Setup container runtine, kubelet, kubectl, kubeadm
+  remote_user: ci
+  become: yes
+  tasks:
+    # https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/#before-you-begin
+    - name: Disable swap
+      shell: swapoff -a
+
+    - name: Remove swap entry from /etc/fstab
+      lineinfile:
+        dest: /etc/fstab
+        regexp: swap
+        state: absent
+
+    - name: Load br_netfilter module
+      shell: |
+        cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+        br_netfilter
+        EOF
+
+    - name: Configure iptables to see bridged traffic
+      shell: |
+        cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net.bridge.bridge-nf-call-iptables = 1
+        EOF
+
+    - name: Read values from all system directories
+      shell: sysctl --system
+
+    # https://docs.docker.com/engine/install/ubuntu/#installation-methods
+    - name: Install packages to allow apt to use a repository over HTTPS
+      apt:
+        name:
+          - ca-certificates
+          - gnupg
+          - apt-transport-https
+        state: present
+        update_cache: yes
+
+    - name: Add Docker’s official GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Get Ubuntu release version
+      shell: lsb_release -cs
+      register: ubuntu_version
+
+    - name: Get architecture
+      shell: dpkg --print-architecture
+      register: architecture
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch={{ architecture.stdout }}] https://download.docker.com/linux/ubuntu {{ ubuntu_version.stdout }} stable"
+        state: present
+        filename: docker
+
+    - name: Update apt packages
+      apt:
+        update_cache: "yes"
+        force_apt_get: "yes"
+
+    - name: Install Docker engine
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    # https://kubernetes.io/docs/setup/production-environment/container-runtimes/#docker
+    - name: Create Docker directory
+      file:
+        path: /etc/docker
+        state: directory
+
+    - name: Create Docker daemon empty file
+      copy:
+        content: ""
+        dest: /etc/docker/daemon.json
+        force: no
+
+    - name: Configure Docker daemon
+      shell: |
+        cat <<EOF | sudo tee /etc/docker/daemon.json
+        {
+          "exec-opts": ["native.cgroupdriver=systemd"],
+          "log-driver": "json-file",
+          "log-opts": {
+            "max-size": "100m"
+          },
+          "storage-driver": "overlay2"
+        }
+        EOF
+
+    - name: Restart Docker
+      systemd:
+        name: docker
+        state: restarted
+        enabled: yes
+        daemon-reload: yes
+
+    - name: Add current user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+      become: yes
+
+    - name: Add Google Cloud public signing key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Add Kubernetes repository
+      apt_repository:
+        repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+        state: present
+        filename: kubernetes
+        mode: 0600
+
+    - name: Install kubelet, kubeadm and kubectl
+      apt:
+        name:
+          - kubeadm=1.23.1-00
+          - kubectl=1.23.1-00
+          - kubelet=1.23.1-00
+        state: present
+
+    - name: Enable kubelet service
+      service:
+        name: kubelet
+        enabled: yes
+
+- hosts: masters
+  name: Init cluster and join masters
+  remote_user: ci
+  become: yes
+  tasks:
+    - name: Reset existing cluster
+      shell: kubeadm reset -f
+
+    - name: Remove .kube in user home directory
+      shell: rm -rf .kube
+
+    - name: Remove /etc/kubernetes/manifests directory
+      shell: rm -rf /etc/kubernetes/manifests
+
+    - name: Remove /var/lib/etcd directory
+      shell: rm -rf /var/lib/etcd
+
+    - name: Ensures /etc/kubernetes/pki/etcd dir exists
+      file: path=/etc/kubernetes/pki/etcd state=directory
+
+    - name: Copy ca.crt on k8s-master-1 into /etc/kubernetes
+      copy:
+        remote_src: yes
+        src: /home/ci/ca.crt
+        dest: /etc/kubernetes/pki/etcd
+        owner: root
+        group: root
+      run_once: yes
+      delegate_to: "172.16.1.11" # This is k8s-master-1
+
+    - name: Copy apiserver-etcd-client.crt on k8s-master-1 into /etc/kubernetes
+      copy:
+        remote_src: yes
+        src: /home/ci/apiserver-etcd-client.crt
+        dest: /etc/kubernetes/pki
+        owner: root
+        group: root
+      run_once: yes
+      delegate_to: "172.16.1.11" # This is k8s-master-1
+
+    - name: Copy apiserver-etcd-client.key on k8s-master-1 into /etc/kubernetes
+      copy:
+        remote_src: yes
+        src: /home/ci/apiserver-etcd-client.key
+        dest: /etc/kubernetes/pki
+        owner: root
+        group: root
+      run_once: yes
+      delegate_to: "172.16.1.11" # This is k8s-master-1
+
+    - name: Create file kubeadm-config.yaml
+      shell: |
+        cat << EOF > kubeadm-config.yaml
+        ---
+        apiVersion: kubeadm.k8s.io/v1beta3
+        kind: ClusterConfiguration
+        kubernetesVersion: stable
+        controlPlaneEndpoint: "172.16.1.11:6443"
+        etcd:
+          external:
+            endpoints:
+              - https://172.16.3.11:2379
+              - https://172.16.3.12:2379
+              - https://172.16.3.13:2379
+            caFile: /etc/kubernetes/pki/etcd/ca.crt
+            certFile: /etc/kubernetes/pki/apiserver-etcd-client.crt
+            keyFile: /etc/kubernetes/pki/apiserver-etcd-client.key
+        EOF
+      run_once: yes
+      delegate_to: "172.16.1.11" # This is k8s-master-1
+
+    - name: Init kubernetes cluster
+      shell: kubeadm init --config kubeadm-config.yaml --upload-certs
+      run_once: yes
+      delegate_to: "172.16.1.11"
+
+    - name: Deploy Flannel network
+      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+      run_once: yes
+      delegate_to: "172.16.1.11"
+
+    - name: Print join command
+      shell: kubeadm token create --print-join-command
+      register: kubernetes_join_command
+      run_once: yes
+      delegate_to: "172.16.1.11"
+
+    - name: Copy join command to local
+      become: no
+      local_action: copy content="{{ kubernetes_join_command.stdout_lines[0] }}" dest="/tmp/kubernetes_join_command" mode=0777
+      run_once: yes
+      delegate_to: "172.16.1.11"
+
+    - name: Generate certificate key
+      shell: kubeadm init phase upload-certs --upload-certs
+      register: kubernetes_certificate_key
+      run_once: yes
+      delegate_to: "172.16.1.11"
+
+    - name: Create directory for kube config
+      file:
+        path: /home/ci/.kube
+        state: directory
+        owner: ci
+        group: ci
+        mode: 0755
+
+    - name: Copy /etc/kubernetes/admin.conf to user home directory
+      become_user: root
+      become_method: sudo
+      become: yes
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ci/.kube/config
+        remote_src: yes
+        owner: ci
+        group: ci
+        mode: '0644'
+
+- hosts: workers
+  name: Join workers
+  remote_user: ci
+  become: yes
+  tasks:
+    - name: Reset existing cluster
+      shell: kubeadm reset -f
+
+    - name: Remove .kube in user home directory
+      shell: rm -rf .kube
+
+    - name: Remove /etc/kubernetes/manifests directory
+      shell: rm -rf /etc/kubernetes/manifests
+
+    - name: Copy join command to workers
+      copy:
+        src: /tmp/kubernetes_join_command
+        dest: /tmp/kubernetes_join_command
+        mode: 0777
+
+    - name: Execute worker join command
+      shell: sh /tmp/kubernetes_join_command
