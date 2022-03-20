@@ -160,8 +160,19 @@
       run_once: yes
       delegate_to: "172.16.1.11"
 
+    # This got updated after the video
+    # Use release 0.16.3, rather than master version!
+    - name: Copy kube-flannel-v0.16.3.yml
+      copy:
+        src: ../kube-flannel-v0.16.3.yml
+        dest: /home/ci/kube-flannel-v0.16.3.yml
+        owner: ci
+        group: ci
+        mode: '0644'
+      when: inventory_hostname == "172.16.1.11"
+
     - name: Deploy Flannel network
-      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f kube-flannel-v0.16.3.yml
       run_once: yes
       delegate_to: "172.16.1.11"
 
