@@ -199,6 +199,20 @@
         group: ci
         mode: '0644'
 
+    # This got updated after the video
+    # Because of https://github.com/kubernetes/kubernetes/issues/60835#issuecomment-395931644
+    - name: Edit kubeadm.conf
+      blockinfile:
+        path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+        block: |
+          Environment="KUBELET_EXTRA_ARGS=--node-ip={{ inventory_hostname }}"
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        daemon-reload: yes
+        state: restarted
+
 - hosts: workers
   name: Join workers
   remote_user: ci
@@ -221,3 +235,17 @@
 
     - name: Execute worker join command
       shell: sh /tmp/kubernetes_join_command
+
+    # This got updated after the video
+    # Because of https://github.com/kubernetes/kubernetes/issues/60835#issuecomment-395931644
+    - name: Edit kubeadm.conf
+      blockinfile:
+        path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+        block: |
+          Environment="KUBELET_EXTRA_ARGS=--node-ip={{ inventory_hostname }}"
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        daemon-reload: yes
+        state: restarted

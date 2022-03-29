@@ -199,6 +199,20 @@
       when: inventory_hostname != "172.16.1.11"
       shell: "{{ kubernetes_join_command.stdout_lines[0] }} --control-plane --certificate-key {{ kubernetes_certificate_key.stdout_lines[2] }} --apiserver-advertise-address={{ inventory_hostname }}"
 
+    # This got updated after the video
+    # Because of https://github.com/kubernetes/kubernetes/issues/60835#issuecomment-395931644
+    - name: Edit kubeadm.conf
+      blockinfile:
+        path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+        block: |
+          Environment="KUBELET_EXTRA_ARGS=--node-ip={{ inventory_hostname }}"
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        daemon-reload: yes
+        state: restarted
+
     - name: Create directory for kube config
       file:
         path: /home/ci/.kube
@@ -241,3 +255,17 @@
 
     - name: Execute worker join command
       shell: sh /tmp/kubernetes_join_command
+
+    # This got updated after the video
+    # Because of https://github.com/kubernetes/kubernetes/issues/60835#issuecomment-395931644
+    - name: Edit kubeadm.conf
+      blockinfile:
+        path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+        block: |
+          Environment="KUBELET_EXTRA_ARGS=--node-ip={{ inventory_hostname }}"
+
+    - name: Restart kubelet service
+      service:
+        name: kubelet
+        daemon-reload: yes
+        state: restarted
