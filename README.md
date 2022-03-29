@@ -11,3 +11,6 @@
 * [Create a HA Kubernetes cluster with kubeadm, keepalived, and haproxy by Ansible](create-ha-cluster)
 * [Set up a High Availability etcd Cluster with kubeadm by Ansible](setup-ha-etcd-cluster)
 * [Load balancing requests to Kubernetes services with external haproxy and NGINX Ingress Controller](load-balancing-services)
+* [Install MetalLB as a network load balancer on bare-metal cluster](metallb)
+
+
