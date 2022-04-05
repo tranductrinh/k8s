@@ -38,28 +38,31 @@ sudo chmod 777 /mnt/nfs_share/
 If you run `sudo ls /mnt/nfs_share/`, it should return empty directory.
 
 #### Grant NFS Share Access to Client Systems
-```
+```shell
 sudo vi /etc/exports
 ```
 
 Add following lines to grant access from workers
 ```text
-/mnt/nfs_share_subdir 172.16.2.11(rw,sync,no_subtree_check)
-/mnt/nfs_share_subdir 172.16.2.12(rw,sync,no_subtree_check)
-/mnt/nfs_share_subdir 172.16.2.13(rw,sync,no_subtree_check)
+/mnt/nfs_share 172.16.0.0/16(rw,insecure,sync,no_subtree_check)
 ```
 
 #### Export the NFS Share Directory
-```
+```shell
 sudo exportfs -a
 sudo systemctl restart nfs-kernel-server
 ```
 
 #### Allow NFS Access through the Firewall
+Check firewall status
+```shell
+sudo ufw status
 ```
-sudo ufw allow from 172.16.2.11 to any port nfs
-sudo ufw allow from 172.16.2.12 to any port nfs
-sudo ufw allow from 172.16.2.13 to any port nfs
+
+If your firewall is enabled, then allow workers to connect to NFS port.
+```shell
+sudo ufw allow from 172.16.0.0/16 to any port nfs
+sudo ufw status numbered
 ```
 
 #### Install the NFS-Common Package on Workers
@@ -117,9 +120,15 @@ kubectl get pod
 ```
 
 SSH to NFS Server, and check shared directory.
-```
+```shell
 ssh ci@172.16.4.11
-sudo ls /mnt/nfs_share
+cd /mnt/nfs_share
+ls -alh
 ```
 
 There is a directory inside `/mnt/nfs_share`, it has the `VOLUME` hash that you see above.
+
+```shell
+cd _VOLUME_HASH_DIRECTORY_
+echo "Hello from a PV on NFS Server" >> index.html
+```
