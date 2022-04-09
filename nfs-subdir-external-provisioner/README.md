@@ -115,7 +115,7 @@ kubectl get pvc
 `my-nginx-pvc` PersistentVolumeClaim is in `Bound` status. You should note the `VOLUME` hash.
 
 ```shell
-kubectl apply -f my-nginx-pod.yaml
+kubectl apply -f my-nginx-deploy.yaml
 kubectl get pod
 ```
 
@@ -132,3 +132,11 @@ There is a directory inside `/mnt/nfs_share`, it has the `VOLUME` hash that you 
 cd _VOLUME_HASH_DIRECTORY_
 echo "Hello from a PV on NFS Server" >> index.html
 ```
+
+Create service
+```shell
+kubectl apply -f my-nginx-svc.yaml
+kubectl get svc
+```
+
+Open `http://172.16.1.11:30080/` on browser.
