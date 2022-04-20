@@ -15,3 +15,4 @@
 
 ## Storage
 * [Dynamic provision Persistent Volumes with NFS Subdir External Provisioner](nfs-subdir-external-provisioner)
+* [Cloud-Native Storage solution with Rook Ceph](rook-ceph)
