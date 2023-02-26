@@ -5,6 +5,9 @@ Jaeger: open source, end-to-end distributed tracing
 * A k8s cluster
 * [Helm](https://helm.sh/)
 
+## Setup Kubernetes cluster
+Follow * [Load balancing requests to Kubernetes services with external haproxy and NGINX Ingress Controller](../load-balancing-services)
+
 ## Install cert-manager and trust-manager
 ```shell
 helm repo add jetstack https://charts.jetstack.io --force-update
@@ -37,6 +40,9 @@ kubectl apply -f jaeger-operator-v1.42.0.yml
 ```
 
 ## Deploy the AllInOne image
+Replace `172.16.0.16` with IP from your cluster.
 ```shell
 kubectl apply -f simplest.yaml
 ```
+
+Open on browser [http://jaegerui.172.16.0.16.nip.io/](http://jaegerui.172.16.0.16.nip.io/).

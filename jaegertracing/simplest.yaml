@@ -2,3 +2,23 @@ apiVersion: jaegertracing.io/v1
 kind: Jaeger
 metadata:
   name: simplest
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-simplest
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: jaegerui.172.16.0.16.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: simplest-query
+                port:
+                  number: 16686
