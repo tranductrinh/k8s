@@ -1,0 +1,6 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: trust-manager-selfsigned-cluster-issuer
+spec:
+  selfSigned: {}
