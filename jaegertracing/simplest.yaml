@@ -2,11 +2,26 @@ apiVersion: jaegertracing.io/v1
 kind: Jaeger
 metadata:
   name: simplest
+  namespace: observability-system
+spec:
+  strategy: allInOne
+  allInOne:
+    image: jaegertracing/all-in-one:latest 
+    options:
+      log-level: debug
+  storage:
+    type: memory
+    options:
+      memory:
+        max-traces: 100000
+  ingress:
+    enabled: false
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: my-simplest
+  namespace: observability-system
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:

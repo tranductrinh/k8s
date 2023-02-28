@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-hotrod
+spec:
+  selector:
+    matchLabels:
+      run: example-hotrod
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: example-hotrod
+    spec:
+      containers:
+        - name: example-hotrod
+          image: jaegertracing/example-hotrod:1.42
+          ports:
+            - containerPort: 8080
+          env:
+            - name: OTEL_EXPORTER_JAEGER_ENDPOINT
+              value: http://simplest-collector.observability-system.svc.cluster.local:14268/api/traces
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: example-hotrod
+  labels:
+    run: example-hotrod
+spec:
+  ports:
+    - port: 8080
+      protocol: TCP
+  selector:
+    run: example-hotrod
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-example-hotrod
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: example-hotrod.172.16.0.16.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: example-hotrod
+                port:
+                  number: 8080

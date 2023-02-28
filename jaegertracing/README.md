@@ -46,3 +46,14 @@ kubectl apply -f simplest.yaml
 ```
 
 Open on browser [http://jaegerui.172.16.0.16.nip.io/](http://jaegerui.172.16.0.16.nip.io/).
+
+## Deploy Rides on Demand
+https://github.com/jaegertracing/jaeger/tree/main/examples/hotrod
+
+Replace `172.16.0.16` with IP from your cluster.
+```shell
+kubectl apply -f example-hotrod.yaml
+```
+
+Open on browser [http://example-hotrod.172.16.0.16.nip.io/](http://example-hotrod.172.16.0.16.nip.io/).
+
