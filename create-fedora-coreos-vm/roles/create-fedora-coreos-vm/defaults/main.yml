@@ -1,0 +1,13 @@
+---
+# defaults file for create-fedora-coreos-vm
+base_image_pool_dir: "/images/base"
+base_image_name: fedora-coreos-39.20240128.3.0-qemu.x86_64.qcow2
+vms_image_pool_dir: "/images/vms"
+vm_name: my-awesome-vm
+vm_vcpus: 2
+vm_memory_mb: 4096
+vm_disk_size: 20G
+ssh_user: core
+# https://docs.fedoraproject.org/en-US/fedora-coreos/authentication/#_using_password_authentication
+ssh_user_password_hash: "WILL_BE_SET_AT_RUNTIME"
+ssh_authorized_key: "WILL_BE_SET_AT_RUNTIME"

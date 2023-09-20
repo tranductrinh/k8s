@@ -1,0 +1,31 @@
+{
+  "ignition": {
+    "version": "3.0.0"
+  },
+  "passwd": {
+    "users": [
+      {
+        "name": "{{ ssh_user }}",
+        "groups": [
+            "sudo",
+            "docker"
+        ],
+        "passwordHash": "{{ ssh_user_password_hash }}",
+        "sshAuthorizedKeys": [
+          "{{ ssh_authorized_key }}"
+        ]
+      }
+    ]
+  },
+  "storage": {
+    "files": [
+        {
+            "path": "/etc/hostname",
+            "contents": {
+                "compression": "",
+                "source": "data:,{{ vm_name }}%0A"
+            }
+        }
+    ]
+  }
+}

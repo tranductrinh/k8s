@@ -1,0 +1,56 @@
+---
+# tasks file for create-fedora-coreos-vm
+- name: Check preconditions
+  block:
+    - name: Check if vm exists
+      stat:
+        path: "{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.xml"
+      register: stat_result
+    - name: Fail if vm exists
+      fail:
+        msg: VM already exists
+      when: stat_result.stat.exists
+    - name: Fail if vm is not named
+      fail:
+        msg: No name provided for the new VM
+      when: vm_name | length == 0
+
+- name: "Create a VM directory: {{ vms_image_pool_dir }}/{{ vm_name }}"
+  file:
+    path: "{{ vms_image_pool_dir }}/{{ vm_name }}"
+    state: directory
+
+- name: Copy base image to the VM directory
+  become: true
+  copy:
+    remote_src: true
+    src: "{{ base_image_pool_dir }}/{{ base_image_name }}"
+    dest: "{{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.qcow2"
+
+- name: Resize the VM image
+  become: true
+  shell: "qemu-img resize {{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.qcow2 +{{ vm_disk_size }}"
+
+- name: Generate new mac address for the new VM
+  shell: bash -c "printf '00:16:3E:%02X:%02X:%02X\n' $[RANDOM%256] $[RANDOM%256] $[RANDOM%256]"
+  register: new_mac
+
+- name: "Save new mac address for the new VM: {{ new_mac.stdout }}"
+  set_fact:
+    vm_mac_address: "{{ new_mac.stdout }}"
+    vm_uuid: "{{ ansible_date_time.iso8601_micro | to_uuid }}"
+
+- name: Copy fcos.ign into the VM directory
+  template:
+    src: fcos-template.ign.j2
+    dest: "{{ vms_image_pool_dir }}/{{ vm_name }}/fcos.ign"
+    mode: 0644
+
+- name: "Start the new VM: {{ vm_name }}"
+  become: true
+  shell: "virt-install -n {{ vm_name }} --vcpus {{ vm_vcpus }} -r {{ vm_memory_mb }} \
+  --os-variant=fedora31 --import \
+  --network network=host-bridge,model=virtio,mac={{ vm_mac_address }} \
+  --disk={{ vms_image_pool_dir }}/{{ vm_name }}/{{ vm_name }}.qcow2,format=qcow2,bus=virtio \
+  --noautoconsole \
+  --qemu-commandline=\"-fw_cfg name=opt/com.coreos/config,file={{ vms_image_pool_dir }}/{{ vm_name }}/fcos.ign\""

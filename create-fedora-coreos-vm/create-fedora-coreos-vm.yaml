@@ -1,0 +1,8 @@
+- name: Create Fedora CoreOS VM
+  hosts: all
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Create Fedora CoreOS VM
+      include_role:
+        name: create-fedora-coreos-vm
