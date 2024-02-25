@@ -55,7 +55,7 @@
     --firstboot-command "cat << "EOF" > /etc/netplan/00-installer-config.yaml
     network:
       ethernets:
-        ens2:
+        enp1s0:
           dhcp4: true
       version: 2
     EOF" \

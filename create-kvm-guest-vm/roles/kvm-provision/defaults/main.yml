@@ -1,7 +1,7 @@
 ---
 # defaults file for kvm-provision
 base_image_pool_dir: "/images/base"
-base_image_name: focal-server-cloudimg-amd64.qcow2
+base_image_name: jammy-server-cloudimg-amd64.qcow2
 vms_image_pool_dir: "/images/vms"
 vm_memory_mb: 4096
 vm_vcpus: 2
