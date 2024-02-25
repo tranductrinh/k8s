@@ -1,9 +1,12 @@
 ---
-
 - hosts: masters, workers
   name: Setup masters and workers
   remote_user: ci
   become: true
+  vars:
+    os_version: xUbuntu_22.04
+    crio_version: 1.28
+    k8s_version: 1.28.2-00
   tasks:
     # https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/#before-you-begin
     - name: Disable swap
@@ -20,98 +23,74 @@
         cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
         br_netfilter
         EOF
+        modprobe overlay
+        modprobe br_netfilter
 
     - name: Configure iptables to see bridged traffic
       shell: |
         cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+        net.bridge.bridge-nf-call-iptables  = 1
         net.bridge.bridge-nf-call-ip6tables = 1
-        net.bridge.bridge-nf-call-iptables = 1
+        net.ipv4.ip_forward                 = 1
         EOF
 
     - name: Read values from all system directories
       shell: sysctl --system
 
-    # https://docs.docker.com/engine/install/ubuntu/#installation-methods
+    # https://v1-28.docs.kubernetes.io/docs/setup/production-environment/container-runtimes/#cri-o
     - name: Install packages to allow apt to use a repository over HTTPS
       apt:
         name:
           - ca-certificates
           - gnupg
           - apt-transport-https
+          - curl
+          - gnupg2
+          - software-properties-common
         state: present
         update_cache: yes
 
-    - name: Add Docker’s official GPG key
+    - name: Add GPG key for kubic stable repository
       apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
+        url: https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/{{ os_version }}/Release.key
         state: present
 
-    - name: Get Ubuntu release version
-      shell: lsb_release -cs
-      register: ubuntu_version
+    - name: Add GPG key for kubic crio {{ crio_version }} repository
+      apt_key:
+        url: https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:/{{ crio_version }}/{{ os_version }}/Release.key
+        state: present
 
-    - name: Get architecture
-      shell: dpkg --print-architecture
-      register: architecture
-
-    - name: Add Docker repository
+    - name: Add kubic stable repository
       apt_repository:
-        repo: "deb [arch={{ architecture.stdout }}] https://download.docker.com/linux/ubuntu {{ ubuntu_version.stdout }} stable"
+        repo: "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/{{ os_version }}/ /"
         state: present
-        filename: docker
+        filename: devel:kubic:libcontainers:stable.list
+
+    - name: Add kubic crio {{ crio_version }} repository
+      apt_repository:
+        repo: "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/{{ crio_version }}/{{ os_version }}/ /"
+        state: present
+        filename: devel:kubic:libcontainers:stable:cri-o:{{ crio_version }}.list
 
     - name: Update apt packages
       apt:
         update_cache: "yes"
         force_apt_get: "yes"
 
-    - name: Install Docker engine
+    - name: Install crio
       apt:
         name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
+          - cri-o
+          - cri-o-runc
         state: present
         update_cache: yes
 
-    # https://kubernetes.io/docs/setup/production-environment/container-runtimes/#docker
-    - name: Create Docker directory
-      file:
-        path: /etc/docker
-        state: directory
-
-    - name: Create Docker daemon empty file
-      copy:
-        content: ""
-        dest: /etc/docker/daemon.json
-        force: no
-
-    - name: Configure Docker daemon
-      shell: |
-        cat <<EOF | sudo tee /etc/docker/daemon.json
-        {
-          "exec-opts": ["native.cgroupdriver=systemd"],
-          "log-driver": "json-file",
-          "log-opts": {
-            "max-size": "100m"
-          },
-          "storage-driver": "overlay2"
-        }
-        EOF
-
-    - name: Restart Docker
+    - name: Restart crio
       systemd:
-        name: docker
+        name: crio
         state: restarted
         enabled: yes
         daemon-reload: yes
-
-    - name: Add current user to docker group
-      user:
-        name: "{{ ansible_user }}"
-        groups: docker
-        append: yes
-      become: true
 
     - name: Add Google Cloud public signing key
       apt_key:
@@ -128,9 +107,9 @@
     - name: Install kubelet, kubeadm and kubectl
       apt:
         name:
-          - kubeadm=1.23.1-00
-          - kubectl=1.23.1-00
-          - kubelet=1.23.1-00
+          - kubeadm={{ k8s_version }}
+          - kubectl={{ k8s_version }}
+          - kubelet={{ k8s_version }}
         state: present
 
     - name: Enable kubelet service
@@ -142,6 +121,9 @@
   name: Init cluster
   remote_user: ci
   become: true
+  vars:
+    control_plane_endpoint: 172.16.1.11
+    flannel_version: 0.24.2
   tasks:
     - name: Reset existing cluster
       shell: kubeadm reset -f
@@ -156,20 +138,19 @@
       shell: rm -rf /var/lib/etcd
 
     - name: Init kubernetes cluster
-      shell: kubeadm init --control-plane-endpoint=172.16.1.11:6443 --upload-certs --apiserver-advertise-address=172.16.1.11 --pod-network-cidr=10.244.0.0/16
+      shell: kubeadm init --control-plane-endpoint={{ control_plane_endpoint }}:6443 --upload-certs --apiserver-advertise-address={{ control_plane_endpoint }} --pod-network-cidr=10.244.0.0/16
 
     # This got updated after the video
-    # Use release 0.16.3, rather than master version!
-    - name: Copy kube-flannel-v0.16.3.yml
+    - name: Copy kube-flannel-v{{ flannel_version }}.yml
       copy:
-        src: ../kube-flannel-v0.16.3.yml
-        dest: /home/ci/kube-flannel-v0.16.3.yml
+        src: ../kube-flannel-v{{ flannel_version }}.yml
+        dest: /home/ci/kube-flannel-v{{ flannel_version }}.yml
         owner: ci
         group: ci
         mode: '0644'
 
-    - name: Deploy Flannel network
-      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f kube-flannel-v0.16.3.yml
+    - name: Deploy Flannel {{ flannel_version }} network
+      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f kube-flannel-v{{ flannel_version }}.yml
 
     - name: Print join command
       shell: kubeadm token create --print-join-command

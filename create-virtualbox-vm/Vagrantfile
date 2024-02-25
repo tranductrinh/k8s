@@ -1,5 +1,6 @@
 Vagrant.configure("2") do |config|
-    config.vm.box = "generic/ubuntu2004"
+    # Disclaimer: Not sure if this works, I just updated here from generic/ubuntu2004 to generic/ubuntu2204
+    config.vm.box = "generic/ubuntu2204"
     config.vm.box_version = "3.6.8"
     config.vm.hostname = "virtualbox-guest-vm"
     config.vm.network "private_network", ip: "172.16.16.16"
